@@ -65,6 +65,33 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(update.message.text)
 
 
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle document uploads."""
+    document = update.message.document
+    await document.get_file().download(custom_path='input_data.csv')
+    context.user_data['uploaded_file'] = 'input_data.csv'
+    await update.message.reply_text("File uploaded successfully. Now choose the model to make predictions.")
+
+async def prediction_supply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Create prediction using Supply Rates Model and get proof ID."""
+    if 'uploaded_file' in context.user_data:
+        # Load CSV, convert to tensor, set sample, and execute prediction
+        X_df = pd.read_csv(context.user_data['uploaded_file'])
+        X_tensor = torch.tensor(X_df.values, dtype=torch.float32)
+        single_test_sample = X_tensor.numpy().astype("float32")[0].reshape(1, -1)
+        
+        prediction_result, proof_id = execute_prediction_supply()
+        
+        # Download the proof
+        command = f"giza endpoints download-proof --endpoint-id YOUR_ENDPOINT_ID --proof-id {proof_id} --output-path supply_rate_model.proof"
+        os.system(command)
+        
+        # Send the proof file
+        await update.message.reply_document(document=InputFile('supply_rate_model.proof'))
+    else:
+        await update.message.reply_text("Please upload a CSV file first.")
+
+
 single_test_sample = None
 
 @task(name='Generate Prediction')
@@ -126,6 +153,10 @@ def main() -> None:
 
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    #For supply Prediction
+    application.add_handler(CommandHandler("predict_supply", prediction_supply))
+    application.add_handler(MessageHandler(filters.Document.MIME_TYPE("text/csv"), handle_document))
 
 
 if __name__ == "__main__":
